@@ -918,7 +918,10 @@ class BinderDesignPipeline:
             )
 
         # Handle use_kernels argument
-        device_capability = torch.cuda.get_device_capability()
+        try:
+            device_capability = torch.cuda.get_device_capability()
+        except RuntimeError:
+            device_capability = (0, 0)  # No CUDA driver / CPU-only node
         use_kernels = None
         if args.use_kernels == "auto":
             use_kernels = device_capability[0] >= 8
