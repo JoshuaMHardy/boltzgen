@@ -1562,16 +1562,32 @@ def merge_command(args: argparse.Namespace) -> None:
                     metrics_frames.append(pd.DataFrame(updated_rows))
                     merged_count += len(source_mappings)
             else:
-                known_ids = [
-                    (orig, new_id)
-                    for (src, orig), new_id in id_map.items()
-                    if src == root
-                ]
-                for original_id, new_id in known_ids:
-                    original_file = f"{original_id}.cif"
-                    new_file = _make_new_file_name(original_file, new_id)
+                # When inverse_fold_num_sequences > 1, IDs in id_map are like
+                # "input_staged_0_0", "input_staged_0_1", but the files in
+                # intermediate_designs use only the base design ID "input_staged_0".
+                # Try the ID directly first; if the file doesn't exist, strip the
+                # trailing _N suffix and deduplicate.
+                seen_base_ids: set[str] = set()
+                for (src, orig), new_id in id_map.items():
+                    if src != root:
+                        continue
+                    original_file_direct = f"{orig}.cif"
+                    if (src_dir / original_file_direct).exists():
+                        # Normal case (inverse_fold_num_sequences == 1)
+                        base_id = orig
+                        base_new_id = new_id
+                    else:
+                        # inverse_fold_num_sequences > 1: strip trailing _N suffix
+                        stripped = re.sub(r"_\d+$", "", orig)
+                        base_id = stripped if stripped != orig else orig
+                        base_new_id = f"{run_tag}_{base_id}"
+                    if base_id in seen_base_ids:
+                        continue
+                    seen_base_ids.add(base_id)
+                    original_file = f"{base_id}.cif"
+                    new_file = _make_new_file_name(original_file, base_new_id)
                     source_mappings.append(
-                        (original_id, new_id, original_file, new_file)
+                        (base_id, base_new_id, original_file, new_file)
                     )
 
             if not source_mappings:
