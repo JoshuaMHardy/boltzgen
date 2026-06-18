@@ -73,7 +73,17 @@ class Filter(Task):
     filter_biased : bool, default=True
         Remove amino-acid composition outliers (default caps on ALA/GLY/GLU/LEU/VAL).
     refolding_rmsd_threshold : float, default=2.5
-        Threshold used for the RMSD-based filters (lower is better).
+        Threshold applied to ``filter_rmsd`` (backbone RMSD of the design chain in the
+        complex refolding). Also used as the default for the two thresholds below if
+        they are not set explicitly.
+    refolding_rmsd_design_threshold : float | None, default=None
+        Threshold for ``filter_rmsd_design`` (backbone RMSD of the design chain only,
+        from the same complex refolding). Defaults to ``refolding_rmsd_threshold``.
+    designfolding_rmsd_threshold : float | None, default=None
+        Threshold for ``designfolding-filter_rmsd`` (backbone RMSD when the design is
+        refolded in isolation, without the target). Defaults to
+        ``refolding_rmsd_threshold``. Relaxing this independently can be useful because
+        refolding without a target is typically harder to satisfy.
     modality : {"peptide","antibody"}, default="peptide"
         Affects liability scoring and optional sequence visualizations.
     alpha : float in [0,1], default=0.1
@@ -160,6 +170,8 @@ class Filter(Task):
         filter_target_aligned: bool = False,
         filter_biased: bool = True,  # This filters out sequences that are alanine rich, 30% alanine is threshold
         refolding_rmsd_threshold: float = 2.5,
+        refolding_rmsd_design_threshold: float = None,  # Threshold for filter_rmsd_design; defaults to refolding_rmsd_threshold
+        designfolding_rmsd_threshold: float = None,  # Threshold for designfolding-filter_rmsd; defaults to refolding_rmsd_threshold
         modality: str = "peptide",  # peptide, antibody
         peptide_type: str = "linear",  # linear, cyclic
         alpha: float = 0.1,  # 0 = quality-only, 1 = diversity-only
@@ -229,6 +241,10 @@ class Filter(Task):
                 else:
                     self.metrics[k] = metrics_override[k]
 
+        # Resolve per-filter RMSD thresholds (fall back to the shared threshold if not set)
+        _rmsd_design_thresh = refolding_rmsd_design_threshold if refolding_rmsd_design_threshold is not None else refolding_rmsd_threshold
+        _designfold_thresh = designfolding_rmsd_threshold if designfolding_rmsd_threshold is not None else refolding_rmsd_threshold
+
         # Define how to Filter
         self.filters = [
             {"feature": "has_x", "lower_is_better": True, "threshold": 0},
@@ -240,7 +256,7 @@ class Filter(Task):
             {
                 "feature": "filter_rmsd_design",
                 "lower_is_better": True,
-                "threshold": refolding_rmsd_threshold,
+                "threshold": _rmsd_design_thresh,
             },
         ]
         if filter_designfolding:
@@ -248,7 +264,7 @@ class Filter(Task):
                 {
                     "feature": "designfolding-filter_rmsd",
                     "lower_is_better": True,
-                    "threshold": refolding_rmsd_threshold,
+                    "threshold": _designfold_thresh,
                 }
             )
         if filter_bindingsite:
@@ -401,6 +417,9 @@ class Filter(Task):
             low = filter["lower_is_better"]
             threshold = filter["threshold"]
 
+            if feat not in self.df.columns:
+                raise KeyError(f"Filter feature '{feat}' not found in dataframe.")
+
             filter_col = f"pass_{feat}_filter"
             filter_cols.append(filter_col)
             if low:
@@ -468,6 +487,8 @@ class Filter(Task):
         for flt in self.filters:
             feat = flt["feature"]
             filter_col = f"pass_{feat}_filter"
+            if filter_col not in self.df.columns:
+                raise KeyError(f"Filter feature '{filter_col}' not found in dataframe.")
             if "fraction" in feat:
                 # If this is a "fraction" feature, meaning a res_type fraction filter, only apply the penalty if num_design > 8
                 mask_fail = (self.df["num_design"] > 8) & (self.df[filter_col] == False)
@@ -1112,7 +1133,9 @@ class Filter(Task):
         filters_df = pd.DataFrame(self.filters)
         filters_df["Pass"] = 0
         for i, filter in enumerate(self.filters):
-            filters_df.at[i, "Pass"] = self.df[f"pass_{filter['feature']}_filter"].sum()
+            col = f"pass_{filter['feature']}_filter"
+            if col in self.df.columns:
+                filters_df.at[i, "Pass"] = self.df[col].sum()
 
         fig_height = 0.4 * len(filters_df) + 2
         fig, ax = plt.subplots(figsize=(8.5, fig_height))
