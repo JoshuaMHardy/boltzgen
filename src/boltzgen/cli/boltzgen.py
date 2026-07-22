@@ -1062,7 +1062,9 @@ class BinderDesignPipeline:
             )
 
             # Inverse folding of diffusion-generated backbones.
-            if not args.skip_inverse_folding:
+            if not args.skip_inverse_folding and (
+                args.steps is None or "inverse_folding" in args.steps
+            ):
                 exclude_residues = []
                 inverse_fold_avoid = (
                     args.inverse_fold_avoid
@@ -1108,29 +1110,30 @@ class BinderDesignPipeline:
 
         # Folding
         input_dir = output_dir
-        self.steps.append(
-            PipelineStep(
-                name="folding",
-                config_path=args.config_dir / "fold.yaml",
-                args=[
-                    f"output={output_dir}",
-                    f"data.design_dir={input_dir}",
-                    f"trainer.devices={devices}",
-                    f"data.cfg.num_workers={args.num_workers}",
-                    f"data.skip_existing={args.reuse}",
-                    f"data.skip_existing_kind=folded",
-                    f"override.use_kernels={use_kernels}",
-                    f"checkpoint={get_artifact_path(args, args.folding_checkpoint)}",
-                    f"data.cfg.moldir={moldir}",
-                ]
-                + config_args_by_step["folding"],
+        if args.steps is None or "folding" in args.steps:
+            self.steps.append(
+                PipelineStep(
+                    name="folding",
+                    config_path=args.config_dir / "fold.yaml",
+                    args=[
+                        f"output={output_dir}",
+                        f"data.design_dir={input_dir}",
+                        f"trainer.devices={devices}",
+                        f"data.cfg.num_workers={args.num_workers}",
+                        f"data.skip_existing={args.reuse}",
+                        f"data.skip_existing_kind=folded",
+                        f"override.use_kernels={use_kernels}",
+                        f"checkpoint={get_artifact_path(args, args.folding_checkpoint)}",
+                        f"data.cfg.moldir={moldir}",
+                    ]
+                    + config_args_by_step["folding"],
+                )
             )
-        )
 
         # Design folding
         input_dir = output_dir
         do_design_folding = protocol in ["protein-anything", "protein-small_molecule"]
-        if do_design_folding:
+        if do_design_folding and (args.steps is None or "design_folding" in args.steps):
             self.steps.append(
                 PipelineStep(
                     name="design_folding",
@@ -1154,7 +1157,7 @@ class BinderDesignPipeline:
 
         # Affinity
         use_affinity = protocol in ["protein-small_molecule"]
-        if use_affinity:
+        if use_affinity and (args.steps is None or "affinity" in args.steps):
             self.steps.append(
                 PipelineStep(
                     name="affinity",
